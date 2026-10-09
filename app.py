@@ -861,19 +861,18 @@ if selected_page == "Chat":
                         st.session_state.messages[-12:]
                     )
 
-                    try:
-                        with st.spinner("Thinking and checking memory..."):
-                            response = client.chat.completions.create(
-                                model="llama-3.3-70b-versatile",
-                                messages=[
-                                    {
-                                        "role": "system",
-                                        "content": system_prompt,
-                                    },
-                                    *recent_messages,
-                                ],
-                                temperature=0.4,
-                            )
+                   try:
+    with st.spinner("Thinking and checking memory..."):
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                *recent_messages,
+            ],
+        )
 
                         answer = (
                             response.choices[0].message.content
