@@ -780,10 +780,8 @@ if selected_page == "Chat":
                         st.rerun()
 
         for message in st.session_state.messages:
-            avatar = "🧑‍💻" if message["role"] == "user" else "✦"
-
-            with st.chat_message(message["role"], avatar=avatar):
-                st.markdown(message["content"])
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
         pending_prompt = st.session_state.pop(
             "pending_prompt", None
