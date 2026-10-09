@@ -1,5 +1,6 @@
 import streamlit as st
 from groq import Groq
+import html
 
 from memory_manager import (
     save_memory,
@@ -21,7 +22,7 @@ st.set_page_config(
 )
 
 # --------------------------------------------------
-# CUSTOM DESIGN (light look, forced even if the browser/Streamlit is in dark mode)
+# CUSTOM DESIGN
 # --------------------------------------------------
 
 st.markdown(
@@ -73,7 +74,6 @@ st.markdown(
         border-radius: 10px;
     }
 
-    /* ---------- Generic text colors ---------- */
     [data-testid="stMain"] h1,
     [data-testid="stMain"] h2,
     [data-testid="stMain"] h3,
@@ -94,7 +94,6 @@ st.markdown(
         color: #33334C;
     }
 
-    /* ---------- Sidebar radio navigation ---------- */
     [data-testid="stSidebar"] [data-testid="stRadio"] label p {
         color: #3B3B5C !important;
         font-weight: 600;
@@ -105,7 +104,6 @@ st.markdown(
         padding: 6px 4px;
     }
 
-    /* ---------- Metrics (sidebar st.metric) ---------- */
     [data-testid="stMetricLabel"] p {
         color: #8B8CA0 !important;
     }
@@ -117,7 +115,6 @@ st.markdown(
         font-weight: 800;
     }
 
-    /* ---------- Brand ---------- */
     .brand {
         display: flex;
         align-items: center;
@@ -263,6 +260,7 @@ st.markdown(
         color: #33334C;
         font-size: 13px;
         line-height: 1.65;
+        overflow-wrap: anywhere;
     }
 
     .memory-meta {
@@ -305,7 +303,6 @@ st.markdown(
         line-height: 1.7;
     }
 
-    /* ---------- Buttons ---------- */
     .stButton button {
         font-weight: 600;
         border-radius: 10px;
@@ -356,7 +353,6 @@ st.markdown(
         opacity: 0.45;
     }
 
-    /* ---------- Chat ---------- */
     div[data-testid="stChatMessage"] {
         border: 1px solid #ECECF4;
         background: #FFFFFF !important;
@@ -400,7 +396,6 @@ st.markdown(
         color: #FFFFFF !important;
     }
 
-    /* ---------- Inputs (Memory Library) ---------- */
     [data-testid="stTextArea"] textarea,
     [data-testid="stTextInput"] input,
     [data-baseweb="select"] > div {
@@ -449,9 +444,11 @@ st.markdown(
         .hero-title {
             font-size: 27px;
         }
+
         .metric-card {
             padding: 12px;
         }
+
         .metric-value {
             font-size: 21px;
         }
@@ -476,7 +473,6 @@ if "last_retrieved_memories" not in st.session_state:
 
 if "last_memory_query" not in st.session_state:
     st.session_state.last_memory_query = ""
-
 
 # --------------------------------------------------
 # HELPERS
@@ -508,18 +504,18 @@ def render_metric(icon, value, label):
 
 
 def render_memory_card(memory):
+    category = html.escape(str(memory.get("category", "General")))
+    content = html.escape(str(memory.get("content", "")))
+    memory_id = html.escape(str(memory.get("id", "")))
+    created_at = html.escape(str(memory.get("created_at", "")))
+
     st.markdown(
         f"""
         <div class="memory-card">
-            <div class="memory-label">
-                {memory['category']}
-            </div>
-            <div class="memory-content">
-                {memory['content']}
-            </div>
+            <div class="memory-label">{category}</div>
+            <div class="memory-content">{content}</div>
             <div class="memory-meta">
-                Memory #{memory['id']} &nbsp; · &nbsp;
-                {memory['created_at']}
+                Memory #{memory_id} &nbsp; · &nbsp; {created_at}
             </div>
         </div>
         """,
@@ -563,9 +559,12 @@ Your responsibilities:
         prompt += "\n\nRelevant saved memories:\n"
 
         for memory in memories:
+            category = str(memory.get("category", "General"))
+            content = str(memory.get("content", ""))
+
             prompt += (
-                f"- Category: {memory['category']}; "
-                f"Memory: {memory['content']}\n"
+                f"- Category: {category}; "
+                f"Memory: {content}\n"
             )
 
         prompt += (
@@ -653,7 +652,6 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-
 # --------------------------------------------------
 # HEADER
 # --------------------------------------------------
@@ -694,8 +692,10 @@ st.write("")
 
 all_memories = get_all_memories()
 total_messages = len(st.session_state.messages)
+
 user_message_count = sum(
-    1 for message in st.session_state.messages
+    1
+    for message in st.session_state.messages
     if message["role"] == "user"
 )
 
@@ -714,7 +714,6 @@ with metric4:
     render_metric("🔒", "Private", "Memory controls")
 
 st.write("")
-
 
 # --------------------------------------------------
 # CHAT PAGE
@@ -740,7 +739,7 @@ if selected_page == "Chat":
 
         st.write("")
 
-                # Show previous messages.
+        # Empty state and suggested prompts.
         if not st.session_state.messages:
             st.markdown(
                 """
@@ -779,14 +778,12 @@ if selected_page == "Chat":
                         st.session_state.pending_prompt = suggestion
                         st.rerun()
 
-        # Display chat history.
+        # Display existing conversation messages.
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
-        pending_prompt = st.session_state.pop(
-            "pending_prompt", None
-        )
+        pending_prompt = st.session_state.pop("pending_prompt", None)
 
         user_input = st.chat_input(
             "Ask anything, or say 'Remember that ...'"
@@ -797,31 +794,47 @@ if selected_page == "Chat":
 
         if user_input:
             st.session_state.messages.append(
-                {"role": "user", "content": user_input}
+                {
+                    "role": "user",
+                    "content": user_input,
+                }
             )
 
             memory_to_save = find_remember_request(user_input)
 
-            if memory_to_save is not None:
-                if memory_to_save:
-                    result = save_memory(
-                        memory_to_save,
-                        category="User Memory",
-                    )
+            # ------------------------------------------
+            # EXPLICIT MEMORY SAVE
+            # ------------------------------------------
 
-                    if result["success"]:
-                        answer = (
-                            "🧠 **Memory saved successfully!**\n\n"
-                            f"I'll keep this in long-term memory: "
-                            f"**{memory_to_save}**\n\n"
-                            "You can review or delete it anytime in your "
-                            "Memory Library."
+            if memory_to_save is not None:
+
+                if memory_to_save:
+                    try:
+                        result = save_memory(
+                            memory_to_save,
+                            category="User Memory",
                         )
-                    else:
+
+                        if result.get("success"):
+                            answer = (
+                                "🧠 **Memory saved successfully!**\n\n"
+                                f"I'll keep this in long-term memory: "
+                                f"**{memory_to_save}**\n\n"
+                                "You can review or delete it anytime "
+                                "in your Memory Library."
+                            )
+                        else:
+                            answer = (
+                                "I couldn't save that memory. "
+                                + str(result.get("message", "Unknown error."))
+                            )
+
+                    except Exception as error:
                         answer = (
-                            "I couldn't save that memory. "
-                            + result["message"]
+                            "I couldn't save that memory because of a "
+                            f"database error: {error}"
                         )
+
                 else:
                     answer = (
                         "Tell me the information you would like me to remember."
@@ -830,67 +843,90 @@ if selected_page == "Chat":
                 st.session_state.last_retrieved_memories = []
                 st.session_state.last_memory_query = user_input
 
+            # ------------------------------------------
+            # NORMAL AI CONVERSATION
+            # ------------------------------------------
+
             else:
                 client = get_client()
 
                 if client is None:
                     answer = (
                         "⚙️ **API key not configured**\n\n"
-                        "Add your Groq API key to "
-                        "`.streamlit/secrets.toml`, then restart the app."
+                        "Add your Groq API key as `GROQ_API_KEY` in "
+                        "Streamlit Cloud → Settings → Secrets, "
+                        "then restart the app."
                     )
 
-                else:
-                    # Retrieve saved memories related to this query.
-                    retrieved_memories = search_memories(
-                        user_input,
-                        limit=5,
-                    )
-
-                    st.session_state.last_retrieved_memories = (
-                        retrieved_memories
-                    )
+                    st.session_state.last_retrieved_memories = []
                     st.session_state.last_memory_query = user_input
 
-                    system_prompt = build_system_prompt(
-                        retrieved_memories
-                    )
+                else:
+                    try:
+                        # Retrieve memories relevant to the question.
+                        retrieved_memories = search_memories(
+                            user_input,
+                            limit=5,
+                        )
 
-                    # Send recent conversation context to Groq.
-                    recent_messages = (
-                        st.session_state.messages[-12:]
-                    )
+                        st.session_state.last_retrieved_memories = (
+                            retrieved_memories or []
+                        )
+                        st.session_state.last_memory_query = user_input
 
-                   try:
-    with st.spinner("Thinking and checking memory..."):
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                },
-                *recent_messages,
-            ],
-        )
+                        system_prompt = build_system_prompt(
+                            retrieved_memories or []
+                        )
+
+                        # Send the latest conversation messages.
+                        recent_messages = [
+                            {
+                                "role": message["role"],
+                                "content": message["content"],
+                            }
+                            for message in st.session_state.messages[-12:]
+                        ]
+
+                        # Correct indentation: try -> spinner -> API call.
+                        with st.spinner("Thinking and checking memory..."):
+                            response = client.chat.completions.create(
+                                model="openai/gpt-oss-120b",
+                                messages=[
+                                    {
+                                        "role": "system",
+                                        "content": system_prompt,
+                                    },
+                                    *recent_messages,
+                                ],
+                            )
 
                         answer = (
                             response.choices[0].message.content
                             or "I couldn't generate a response."
                         )
 
-                    except Exception:
+                    except Exception as error:
+                        st.error(f"Groq API error: {error}")
+
                         answer = (
-                            "I couldn't connect to the AI service. "
-                            "Please check your Groq API key, internet "
-                            "connection, and model availability."
+                            "I couldn't get a response from the AI service. "
+                            "Please check the error above and your "
+                            "Streamlit Cloud logs."
                         )
 
+            # Save the assistant response to the session conversation.
             st.session_state.messages.append(
-                {"role": "assistant", "content": answer}
+                {
+                    "role": "assistant",
+                    "content": answer,
+                }
             )
 
             st.rerun()
+
+    # ----------------------------------------------
+    # MEMORY CONTEXT PANEL
+    # ----------------------------------------------
 
     with context_column:
         st.markdown(
@@ -920,6 +956,7 @@ if selected_page == "Chat":
                     "The app compares words from your latest message "
                     "with the content of saved memories in SQLite."
                 )
+
                 st.caption(
                     "This is keyword-based retrieval. A match is not "
                     "proof that the memory answers your question."
@@ -943,6 +980,7 @@ if selected_page == "Chat":
             )
 
         st.write("")
+
         st.markdown(
             """
             <div class="info-banner">
@@ -954,7 +992,6 @@ if selected_page == "Chat":
             """,
             unsafe_allow_html=True,
         )
-
 
 # --------------------------------------------------
 # MEMORY LIBRARY PAGE
@@ -999,9 +1036,12 @@ elif selected_page == "Memory Library":
     st.markdown("### Add a memory")
 
     with st.form("add_memory_form", clear_on_submit=True):
+
         new_memory = st.text_area(
             "Memory content",
-            placeholder="Example: I am learning Python for my AI internship.",
+            placeholder=(
+                "Example: I am learning Python for my AI internship."
+            ),
         )
 
         new_category = st.selectbox(
@@ -1023,18 +1063,29 @@ elif selected_page == "Memory Library":
 
         if add_submitted:
             if new_memory.strip():
-                result = save_memory(new_memory, new_category)
+                try:
+                    result = save_memory(
+                        new_memory.strip(),
+                        new_category,
+                    )
 
-                if result["success"]:
-                    st.success(result["message"])
-                    st.rerun()
-                else:
-                    st.error(result["message"])
+                    if result.get("success"):
+                        st.success(
+                            result.get("message", "Memory saved.")
+                        )
+                        st.rerun()
+                    else:
+                        st.error(
+                            result.get("message", "Unable to save memory.")
+                        )
+
+                except Exception as error:
+                    st.error(f"Could not save memory: {error}")
+
             else:
                 st.warning("Please enter some information.")
 
     st.divider()
-
     st.markdown("### Your saved information")
 
     search_term = st.text_input(
@@ -1042,10 +1093,18 @@ elif selected_page == "Memory Library":
         placeholder="Search by keyword...",
     )
 
-    if search_term.strip():
-        visible_memories = search_memories(search_term, limit=20)
-    else:
-        visible_memories = get_all_memories()
+    try:
+        if search_term.strip():
+            visible_memories = search_memories(
+                search_term.strip(),
+                limit=20,
+            )
+        else:
+            visible_memories = get_all_memories()
+
+    except Exception as error:
+        visible_memories = []
+        st.error(f"Could not retrieve memories: {error}")
 
     if not visible_memories:
         st.markdown(
@@ -1070,14 +1129,17 @@ elif selected_page == "Memory Library":
 
         for memory in visible_memories:
             with st.container(border=True):
+
                 info_col, action_col = st.columns([4, 1])
 
                 with info_col:
                     st.markdown(
                         f"**Memory #{memory['id']} · "
-                        f"{memory['category']}**"
+                        f"{html.escape(str(memory['category']))}**"
                     )
+
                     st.write(memory["content"])
+
                     st.caption(
                         f"Saved: {memory['created_at']}"
                     )
@@ -1094,13 +1156,24 @@ elif selected_page == "Memory Library":
                         disabled=not confirm_delete,
                         use_container_width=True,
                     ):
-                        result = delete_memory(memory["id"])
+                        try:
+                            result = delete_memory(memory["id"])
 
-                        if result["success"]:
-                            st.success(result["message"])
-                            st.rerun()
-                        else:
-                            st.error(result["message"])
+                            if result.get("success"):
+                                st.success(
+                                    result.get("message", "Memory deleted.")
+                                )
+                                st.rerun()
+                            else:
+                                st.error(
+                                    result.get(
+                                        "message",
+                                        "Unable to delete memory.",
+                                    )
+                                )
+
+                        except Exception as error:
+                            st.error(f"Could not delete memory: {error}")
 
     if all_memories:
         st.divider()
@@ -1109,7 +1182,7 @@ elif selected_page == "Memory Library":
         with st.expander("Delete all saved memories"):
             st.warning(
                 "This action permanently removes every saved memory "
-                "from the local database."
+                "from the database."
             )
 
             confirm_all = st.checkbox(
@@ -1122,14 +1195,25 @@ elif selected_page == "Memory Library":
                 type="primary",
                 disabled=not confirm_all,
             ):
-                result = delete_all_memories()
+                try:
+                    result = delete_all_memories()
 
-                if result["success"]:
-                    st.success(result["message"])
-                    st.rerun()
-                else:
-                    st.error(result["message"])
+                    if result.get("success"):
+                        st.success(
+                            result.get("message", "All memories deleted.")
+                        )
+                        st.session_state.last_retrieved_memories = []
+                        st.rerun()
+                    else:
+                        st.error(
+                            result.get(
+                                "message",
+                                "Unable to delete all memories.",
+                            )
+                        )
 
+                except Exception as error:
+                    st.error(f"Could not delete memories: {error}")
 
 # --------------------------------------------------
 # ABOUT PAGE
@@ -1217,7 +1301,6 @@ elif selected_page == "About Project":
 
     with tech3:
         render_metric("🗃️", "SQLite", "Persistent memory store")
-
 
 # --------------------------------------------------
 # FOOTER
